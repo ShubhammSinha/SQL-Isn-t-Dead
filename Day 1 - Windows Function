@@ -1,1 +1,36 @@
+-- ============================================
+-- Schema: product_sales
+-- Used in: SQL Isn't Dead — Post 2
+-- Window Functions: ROW_NUMBER, RANK, DENSE_RANK
+-- ============================================
 
+CREATE TABLE product_sales (
+    id            SERIAL PRIMARY KEY,
+    product       VARCHAR(100)   NOT NULL,
+    revenue       NUMERIC(10, 2) NOT NULL,
+    created_at    TIMESTAMP      NOT NULL
+);
+
+-- ============================================
+-- Insert Data
+-- ============================================
+
+INSERT INTO product_sales (product, revenue, created_at) VALUES
+    ('iPhone Case',      12400.00, '2026-05-01 08:14:22'),
+    ('USB-C Hub',         9800.00, '2026-05-03 11:03:47'),
+    ('Screen Protector',  9800.00, '2026-05-03 11:03:47'),
+    ('Webcam',            7100.00, '2026-05-07 15:55:09');
+
+-- ============================================
+-- Query: Window Functions Comparison
+-- ============================================
+
+SELECT
+    product,
+    revenue,
+    ROW_NUMBER() OVER (ORDER BY revenue DESC) AS row_nr,
+    RANK()       OVER (ORDER BY revenue DESC) AS rnk,
+    DENSE_RANK() OVER (ORDER BY revenue DESC) AS dense_rnk,
+    created_at
+FROM product_sales
+ORDER BY revenue DESC;
