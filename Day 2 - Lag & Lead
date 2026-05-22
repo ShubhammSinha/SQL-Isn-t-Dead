@@ -1,0 +1,40 @@
+-- ============================================
+-- Schema: weekly_revenue
+-- Used in: SQL Isn't Dead — Post 3
+-- Window Functions: LAG & LEAD
+-- Database: SQLite
+-- ============================================
+
+CREATE TABLE weekly_revenue (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    week_start  TEXT NOT NULL,
+    revenue     REAL NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
+-- ============================================
+-- Insert Data
+-- ============================================
+
+INSERT INTO weekly_revenue (week_start, revenue, created_at) VALUES
+    ('2026-04-06', 41200.00, '2026-04-06 09:00:00'),
+    ('2026-04-13', 45800.00, '2026-04-13 09:00:00'),
+    ('2026-04-20', 43100.00, '2026-04-20 09:00:00'),
+    ('2026-04-27', 52600.00, '2026-04-27 09:00:00');
+
+-- ============================================
+-- Query: LAG & LEAD with WoW Growth
+-- ============================================
+
+SELECT
+    week_start,
+    revenue,
+    LAG(revenue)  OVER (ORDER BY week_start) AS prev_week_rev,
+    LEAD(revenue) OVER (ORDER BY week_start) AS next_week_rev,
+    ROUND(
+        100.0 * (revenue - LAG(revenue) OVER (ORDER BY week_start))
+              /  LAG(revenue) OVER (ORDER BY week_start),
+        1
+    ) AS wow_growth
+FROM weekly_revenue
+ORDER BY week_start;
