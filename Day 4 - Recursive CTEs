@@ -1,0 +1,98 @@
+-- ============================================
+-- Schema: categories
+-- Used in: SQL Isn't Dead — Post 5
+-- Recursive CTEs: Category Hierarchy
+-- Database: SQLite
+-- ============================================
+
+CREATE TABLE categories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    parent_id   INTEGER REFERENCES categories(id),
+    created_at  TEXT    NOT NULL
+);
+
+-- ============================================
+-- Insert Data
+-- ============================================
+
+INSERT INTO categories (id, name, parent_id, created_at) VALUES
+    (1, 'Electronics',  NULL, '2026-01-01 08:00:00'),
+    (2, 'Phones',       1,    '2026-01-01 08:05:00'),
+    (3, 'Accessories',  2,    '2026-01-01 08:10:00'),
+    (4, 'Cases',        3,    '2026-01-01 08:15:00');
+
+-- ============================================
+-- Query 1: View the raw table
+-- ============================================
+
+SELECT * FROM categories;
+
+-- ============================================
+-- Query 2: Recursive CTE — Full Category Path
+-- Walk UP from Cases to Electronics
+-- ============================================
+
+WITH RECURSIVE category_path AS (
+
+    -- Anchor: start at the category you care about
+    SELECT
+        id,
+        name,
+        parent_id,
+        name       AS path,
+        0          AS depth
+    FROM categories
+    WHERE id = 4  -- Cases
+
+    UNION ALL
+
+    -- Recursive step: walk UP to the parent
+    SELECT
+        c.id,
+        c.name,
+        c.parent_id,
+        c.name || ' > ' || cp.path,
+        cp.depth + 1
+    FROM categories c
+    JOIN category_path cp ON c.id = cp.parent_id
+
+)
+SELECT path
+FROM category_path
+ORDER BY depth DESC
+LIMIT 1;
+
+-- Expected output:
+-- Electronics > Phones > Accessories > Cases
+
+-- ============================================
+-- Query 3: Full paths for ALL leaf categories
+-- ============================================
+
+WITH RECURSIVE category_path AS (
+
+    SELECT
+        id,
+        name,
+        parent_id,
+        name       AS path,
+        0          AS depth
+    FROM categories
+
+    UNION ALL
+
+    SELECT
+        c.id,
+        c.name,
+        c.parent_id,
+        c.name || ' > ' || cp.path,
+        cp.depth + 1
+    FROM categories c
+    JOIN category_path cp ON c.id = cp.parent_id
+
+)
+SELECT path
+FROM category_path
+WHERE depth = (SELECT MAX(depth) FROM category_path)
+ORDER BY path;
