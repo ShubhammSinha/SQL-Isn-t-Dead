@@ -1,0 +1,137 @@
+-- ============================================
+-- Schema: customers & orders (with discount)
+-- Used in: SQL Isn't Dead — Post 8
+-- NULL Handling
+-- Database: SQLite
+-- ============================================
+
+CREATE TABLE customers (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    country     TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL
+);
+
+CREATE TABLE orders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    product     TEXT    NOT NULL,
+    amount      REAL    NOT NULL,
+    discount    REAL,               -- nullable: not all orders have a discount
+    promo_code  TEXT,               -- nullable: not all orders have a promo code
+    created_at  TEXT    NOT NULL
+);
+
+-- ============================================
+-- Insert Data: Customers
+-- Note: customer 7 (Erik) has no orders
+--       to demonstrate NULL behaviour in JOINs
+-- ============================================
+
+INSERT INTO customers (id, name, country, created_at) VALUES
+    (1, 'Anna Müller',     'DE', '2026-01-10 09:00:00'),
+    (2, 'James Carter',    'US', '2026-01-12 10:30:00'),
+    (3, 'Lena Fischer',    'DE', '2026-01-15 11:00:00'),
+    (4, 'Carlos Mendes',   'PT', '2026-01-18 14:00:00'),
+    (5, 'Sophie Lambert',  'FR', '2026-01-20 16:00:00'),
+    (6, 'Tom Becker',      'DE', '2026-01-22 08:45:00'),
+    (7, 'Erik Larsson',    'SE', '2026-01-25 10:00:00');  -- no orders
+
+-- ============================================
+-- Insert Data: Orders
+-- ============================================
+
+INSERT INTO orders (id, customer_id, product, amount, discount, promo_code, created_at) VALUES
+    (1,  1, 'iPhone Case',      29.99,  5.00,  'SAVE10',  '2026-05-01 10:00:00'),
+    (2,  1, 'USB-C Hub',        49.99,  NULL,   NULL,     '2026-05-03 11:00:00'),
+    (3,  2, 'Webcam',           89.99, 10.00, 'WELCOME',  '2026-05-05 12:00:00'),
+    (4,  3, 'Screen Protector', 14.99,  NULL,   NULL,     '2026-05-07 09:30:00'),
+    (5,  4, 'Wireless Mouse',   39.99,  NULL,  'SAVE10',  '2026-05-08 14:00:00'),
+    (6,  5, 'Keyboard',         79.99,  NULL,   NULL,     '2026-05-10 15:00:00'),
+    (7,  6, 'Laptop Stand',     59.99, 15.00,   NULL,     '2026-05-11 10:30:00'),
+    (8,  3, 'USB-C Hub',        49.99,  NULL,  'SAVE10',  '2026-05-12 11:45:00'),
+    (9,  6, 'iPhone Case',      29.99,  NULL,   NULL,     '2026-05-14 13:00:00'),
+    (10, 1, 'Laptop Stand',     59.99,  5.00,  'SUMMER',  '2026-05-15 16:00:00');
+
+-- ============================================
+-- View raw tables
+-- ============================================
+
+SELECT * FROM customers;
+SELECT * FROM orders;
+
+-- ============================================
+-- NULL TRAP 1: Filtering NULLs the wrong way
+-- ============================================
+
+-- Wrong: returns 0 rows even though NULLs exist
+SELECT * FROM orders
+WHERE promo_code = NULL;
+
+-- Right: use IS NULL
+SELECT * FROM orders
+WHERE promo_code IS NULL;
+
+-- Right: use IS NOT NULL
+SELECT * FROM orders
+WHERE promo_code IS NOT NULL;
+
+-- ============================================
+-- NULL TRAP 2: NULLs in arithmetic
+-- ============================================
+
+-- Without COALESCE: NULL discount produces NULL final_price
+SELECT
+    id,
+    product,
+    amount,
+    discount,
+    amount - discount           AS final_price_broken,
+    amount - COALESCE(discount, 0) AS final_price_fixed
+FROM orders;
+
+-- ============================================
+-- NULL TRAP 3: NULLs in aggregations
+-- AVG ignores NULLs — know when that matters
+-- ============================================
+
+-- Only 3 of 10 orders have a discount
+-- AVG(discount) averages across those 3 only
+SELECT
+    COUNT(*)                        AS total_orders,
+    COUNT(discount)                 AS orders_with_discount,
+    ROUND(AVG(discount), 2)         AS avg_discount_excluding_nulls,
+    ROUND(AVG(COALESCE(discount,0)),2) AS avg_discount_including_nulls
+FROM orders;
+
+-- ============================================
+-- NULL TRAP 4: NULLs in LEFT JOINs
+-- ============================================
+
+-- LEFT JOIN: customers with no orders appear with NULL product
+SELECT
+    c.name,
+    c.country,
+    o.product,
+    o.amount
+FROM customers c
+LEFT JOIN orders o ON c.id = o.customer_id
+ORDER BY c.id;
+
+-- Filtering after LEFT JOIN silently drops non-buyers
+-- Wrong: Erik disappears from results
+SELECT
+    c.name,
+    o.product
+FROM customers c
+LEFT JOIN orders o ON c.id = o.customer_id
+WHERE o.product = 'iPhone Case';
+
+-- Right: keep non-buyers explicitly
+SELECT
+    c.name,
+    o.product
+FROM customers c
+LEFT JOIN orders o ON c.id = o.customer_id
+WHERE o.product = 'iPhone Case'
+   OR o.product IS NULL;
