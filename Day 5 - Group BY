@@ -1,0 +1,131 @@
+-- ============================================
+-- Schema: orders (extended)
+-- Used in: SQL Isn't Dead — Post 7
+-- GROUP BY tricks
+-- Database: SQLite
+-- ============================================
+
+CREATE TABLE orders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    product     TEXT    NOT NULL,
+    amount      REAL    NOT NULL,
+    promo_code  TEXT,               -- nullable: not all orders have a promo
+    created_at  TEXT    NOT NULL
+);
+
+-- ============================================
+-- Insert Data
+-- ============================================
+
+INSERT INTO orders (id, customer_id, product, amount, promo_code, created_at) VALUES
+    (1,  1, 'iPhone Case',      29.99, 'SAVE10',  '2026-05-01 10:00:00'),
+    (2,  1, 'USB-C Hub',        49.99,  NULL,     '2026-05-03 11:00:00'),
+    (3,  2, 'Webcam',           89.99, 'WELCOME', '2026-05-05 12:00:00'),
+    (4,  3, 'Screen Protector', 14.99,  NULL,     '2026-05-07 09:30:00'),
+    (5,  4, 'Wireless Mouse',   39.99, 'SAVE10',  '2026-05-08 14:00:00'),
+    (6,  5, 'Keyboard',         79.99,  NULL,     '2026-05-10 15:00:00'),
+    (7,  6, 'Laptop Stand',     59.99,  NULL,     '2026-05-11 10:30:00'),
+    (8,  3, 'USB-C Hub',        49.99, 'SAVE10',  '2026-05-12 11:45:00'),
+    (9,  6, 'iPhone Case',      29.99,  NULL,     '2026-05-14 13:00:00'),
+    (10, 1, 'Laptop Stand',     59.99, 'SUMMER',  '2026-05-15 16:00:00'),
+    (11, 2, 'iPhone Case',      29.99,  NULL,     '2026-05-16 09:00:00'),
+    (12, 4, 'Webcam',           89.99, 'WELCOME', '2026-05-17 10:00:00'),
+    (13, 5, 'USB-C Hub',        49.99,  NULL,     '2026-05-18 11:00:00'),
+    (14, 3, 'Keyboard',         79.99, 'SUMMER',  '2026-05-19 14:00:00'),
+    (15, 2, 'Wireless Mouse',   39.99,  NULL,     '2026-05-20 15:00:00');
+
+-- ============================================
+-- View raw table
+-- ============================================
+
+SELECT * FROM orders;
+
+-- ============================================
+-- TRICK 1: GROUP BY column position
+-- Group by month using position instead of
+-- repeating the full expression
+-- ============================================
+
+-- Without position (verbose):
+SELECT
+    strftime('%Y-%m', created_at) AS month,
+    SUM(amount)                   AS total_revenue
+FROM orders
+GROUP BY strftime('%Y-%m', created_at)
+ORDER BY month;
+
+-- With position (cleaner):
+SELECT
+    strftime('%Y-%m', created_at) AS month,
+    SUM(amount)                   AS total_revenue
+FROM orders
+GROUP BY 1
+ORDER BY 1;
+
+-- ============================================
+-- TRICK 2: HAVING vs WHERE
+-- HAVING filters AFTER aggregation
+-- WHERE filters BEFORE aggregation
+-- ============================================
+
+-- Wrong approach: WHERE cannot use aggregate functions
+-- (uncomment to see the error)
+-- SELECT product, COUNT(*) AS total_orders
+-- FROM orders
+-- WHERE COUNT(*) > 3
+-- GROUP BY product;
+
+-- Right approach: use HAVING to filter groups
+SELECT
+    product,
+    COUNT(*) AS total_orders
+FROM orders
+GROUP BY product
+HAVING COUNT(*) > 2
+ORDER BY total_orders DESC;
+
+-- Combine both: WHERE filters rows first, HAVING filters groups after
+SELECT
+    product,
+    COUNT(*)    AS total_orders,
+    SUM(amount) AS total_revenue
+FROM orders
+WHERE created_at >= '2026-05-10'   -- filter rows first
+GROUP BY product
+HAVING COUNT(*) > 1                -- then filter groups
+ORDER BY total_revenue DESC;
+
+-- ============================================
+-- TRICK 3: COUNT(*) vs COUNT(column)
+-- COUNT(*) includes NULLs
+-- COUNT(column) excludes NULLs
+-- ============================================
+
+SELECT
+    product,
+    COUNT(*)           AS total_orders,
+    COUNT(promo_code)  AS orders_with_promo,
+    COUNT(*) - COUNT(promo_code) AS orders_without_promo
+FROM orders
+GROUP BY product
+ORDER BY total_orders DESC;
+
+-- ============================================
+-- TRICK 4: GROUP BY with CASE WHEN
+-- Bucket orders by size on the fly
+-- No need to alter the table
+-- ============================================
+
+SELECT
+    CASE
+        WHEN amount < 25             THEN 'Small'
+        WHEN amount BETWEEN 25 AND 75 THEN 'Medium'
+        ELSE                              'Large'
+    END          AS order_size,
+    COUNT(*)     AS total_orders,
+    SUM(amount)  AS total_revenue,
+    ROUND(AVG(amount), 2) AS avg_order_value
+FROM orders
+GROUP BY 1
+ORDER BY total_revenue DESC;
