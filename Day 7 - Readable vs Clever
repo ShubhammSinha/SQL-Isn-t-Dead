@@ -1,0 +1,156 @@
+-- ============================================
+-- Schema: regions, customers & orders
+-- Used in: SQL Isn't Dead — Post 9
+-- Readable SQL vs Clever SQL
+-- Database: SQLite
+-- ============================================
+
+CREATE TABLE regions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    country     TEXT    NOT NULL,
+    tier        TEXT    NOT NULL,   -- 'premium' or 'standard'
+    created_at  TEXT    NOT NULL
+);
+
+CREATE TABLE customers (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    country     TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL
+);
+
+CREATE TABLE orders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    product     TEXT    NOT NULL,
+    amount      REAL    NOT NULL,
+    created_at  TEXT    NOT NULL
+);
+
+-- ============================================
+-- Insert Data: Regions
+-- ============================================
+
+INSERT INTO regions (id, country, tier, created_at) VALUES
+    (1, 'DE', 'premium',  '2026-01-01 08:00:00'),
+    (2, 'US', 'premium',  '2026-01-01 08:00:00'),
+    (3, 'FR', 'standard', '2026-01-01 08:00:00'),
+    (4, 'PT', 'standard', '2026-01-01 08:00:00'),
+    (5, 'SE', 'standard', '2026-01-01 08:00:00');
+
+-- ============================================
+-- Insert Data: Customers
+-- ============================================
+
+INSERT INTO customers (id, name, country, created_at) VALUES
+    (1, 'Anna Müller',    'DE', '2026-01-10 09:00:00'),
+    (2, 'James Carter',   'US', '2026-01-12 10:30:00'),
+    (3, 'Lena Fischer',   'DE', '2026-01-15 11:00:00'),
+    (4, 'Carlos Mendes',  'PT', '2026-01-18 14:00:00'),
+    (5, 'Sophie Lambert', 'FR', '2026-01-20 16:00:00'),
+    (6, 'Tom Becker',     'DE', '2026-01-22 08:45:00');
+
+-- ============================================
+-- Insert Data: Orders
+-- ============================================
+
+INSERT INTO orders (id, customer_id, product, amount, created_at) VALUES
+    (1,  1, 'iPhone Case',      29.99, '2026-05-01 10:00:00'),
+    (2,  1, 'USB-C Hub',        49.99, '2026-05-03 11:00:00'),
+    (3,  2, 'Webcam',           89.99, '2026-05-05 12:00:00'),
+    (4,  3, 'Screen Protector', 14.99, '2026-05-07 09:30:00'),
+    (5,  4, 'Wireless Mouse',   39.99, '2026-05-08 14:00:00'),
+    (6,  5, 'Keyboard',         79.99, '2026-05-10 15:00:00'),
+    (7,  6, 'Laptop Stand',     59.99, '2026-05-11 10:30:00'),
+    (8,  3, 'USB-C Hub',        49.99, '2026-05-12 11:45:00'),
+    (9,  6, 'iPhone Case',      29.99, '2026-05-14 13:00:00'),
+    (10, 1, 'Laptop Stand',     59.99, '2026-05-15 16:00:00'),
+    (11, 2, 'iPhone Case',      29.99, '2026-05-16 09:00:00'),
+    (12, 4, 'Webcam',           89.99, '2026-05-17 10:00:00'),
+    (13, 5, 'USB-C Hub',        49.99, '2026-05-18 11:00:00'),
+    (14, 3, 'Keyboard',         79.99, '2026-05-19 14:00:00'),
+    (15, 2, 'Wireless Mouse',   39.99, '2026-05-20 15:00:00');
+
+-- ============================================
+-- View raw tables
+-- ============================================
+
+SELECT * FROM regions;
+SELECT * FROM customers;
+SELECT * FROM orders;
+
+-- ============================================
+-- APPROACH 1: Clever SQL
+-- Find premium customers whose total revenue
+-- is above the overall average
+-- Hard to read, painful to debug
+-- ============================================
+
+SELECT customer_id, SUM(amount) AS total_revenue
+FROM orders
+WHERE customer_id IN (
+    SELECT id FROM customers WHERE country IN (
+        SELECT country FROM regions WHERE tier = 'premium'
+    )
+)
+GROUP BY 1
+HAVING SUM(amount) > (
+    SELECT AVG(total) FROM (
+        SELECT customer_id, SUM(amount) AS total
+        FROM orders
+        GROUP BY 1
+    )
+)
+ORDER BY total_revenue DESC;
+
+-- ============================================
+-- APPROACH 2: Readable SQL
+-- Exact same result — broken into clear steps
+-- Easy to read, easy to debug, easy to hand over
+-- ============================================
+
+WITH premium_countries AS (
+
+    -- Step 1: which countries are premium tier?
+    SELECT country
+    FROM regions
+    WHERE tier = 'premium'
+
+),
+premium_customers AS (
+
+    -- Step 2: which customers are in those countries?
+    SELECT id AS customer_id
+    FROM customers
+    WHERE country IN (SELECT country FROM premium_countries)
+
+),
+customer_revenue AS (
+
+    -- Step 3: total revenue per customer
+    SELECT
+        customer_id,
+        SUM(amount) AS total_revenue
+    FROM orders
+    GROUP BY customer_id
+
+),
+avg_revenue AS (
+
+    -- Step 4: what is the overall average revenue?
+    SELECT AVG(total_revenue) AS avg_rev
+    FROM customer_revenue
+
+)
+
+-- Step 5: return premium customers above average
+SELECT
+    c.name,
+    cr.customer_id,
+    cr.total_revenue,
+    ROUND(ar.avg_rev, 2) AS avg_revenue_benchmark
+FROM customer_revenue cr
+JOIN avg_revenue      ar ON cr.total_revenue > ar.avg_rev
+JOIN customers         c ON cr.customer_id   = c.id
+WHERE cr.customer_id IN (SELECT customer_id FROM premium_customers)
+ORDER BY cr.total_revenue DESC;
