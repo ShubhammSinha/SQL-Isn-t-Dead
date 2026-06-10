@@ -1,0 +1,181 @@
+-- ============================================
+-- Schema: customers & orders
+-- Used in: SQL Isn't Dead — Post 10
+-- QUALIFY: the window function filter
+-- Database: SQLite (with Snowflake/BigQuery versions)
+-- ============================================
+
+-- NOTE: QUALIFY is supported in Snowflake, BigQuery, DuckDB.
+-- SQLite does not support QUALIFY natively.
+-- This file includes:
+--   Section A: SQLite-compatible workaround
+--   Section B: QUALIFY syntax for Snowflake / BigQuery / DuckDB
+
+-- ============================================
+-- Schema
+-- ============================================
+
+CREATE TABLE customers (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    country     TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL
+);
+
+CREATE TABLE orders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    product     TEXT    NOT NULL,
+    amount      REAL    NOT NULL,
+    created_at  TEXT    NOT NULL
+);
+
+-- ============================================
+-- Insert Data: Customers
+-- ============================================
+
+INSERT INTO customers (id, name, country, created_at) VALUES
+    (1, 'Anna Müller',    'DE', '2026-01-10 09:00:00'),
+    (2, 'James Carter',   'US', '2026-01-12 10:30:00'),
+    (3, 'Lena Fischer',   'DE', '2026-01-15 11:00:00'),
+    (4, 'Carlos Mendes',  'PT', '2026-01-18 14:00:00'),
+    (5, 'Sophie Lambert', 'FR', '2026-01-20 16:00:00'),
+    (6, 'Tom Becker',     'DE', '2026-01-22 08:45:00');
+
+-- ============================================
+-- Insert Data: Orders
+-- Multiple orders per customer to make
+-- deduplication meaningful
+-- ============================================
+
+INSERT INTO orders (id, customer_id, product, amount, created_at) VALUES
+    (1,  1, 'iPhone Case',      29.99, '2026-05-01 10:00:00'),
+    (2,  1, 'USB-C Hub',        49.99, '2026-05-03 11:00:00'),
+    (3,  1, 'Laptop Stand',     59.99, '2026-05-15 16:00:00'),  -- Anna's latest
+    (4,  2, 'Webcam',           89.99, '2026-05-05 12:00:00'),
+    (5,  2, 'iPhone Case',      29.99, '2026-05-16 09:00:00'),  -- James's latest
+    (6,  2, 'Wireless Mouse',   39.99, '2026-05-20 15:00:00'),  -- James's latest
+    (7,  3, 'Screen Protector', 14.99, '2026-05-07 09:30:00'),
+    (8,  3, 'USB-C Hub',        49.99, '2026-05-12 11:45:00'),
+    (9,  3, 'Keyboard',         79.99, '2026-05-19 14:00:00'),  -- Lena's latest
+    (10, 4, 'Wireless Mouse',   39.99, '2026-05-08 14:00:00'),
+    (11, 4, 'Webcam',           89.99, '2026-05-17 10:00:00'),  -- Carlos's latest
+    (12, 5, 'Keyboard',         79.99, '2026-05-10 15:00:00'),
+    (13, 5, 'USB-C Hub',        49.99, '2026-05-18 11:00:00'),  -- Sophie's latest
+    (14, 6, 'Laptop Stand',     59.99, '2026-05-11 10:30:00'),
+    (15, 6, 'iPhone Case',      29.99, '2026-05-14 13:00:00');  -- Tom's latest
+
+-- ============================================
+-- View raw tables
+-- ============================================
+
+SELECT * FROM customers;
+SELECT * FROM orders;
+
+-- ============================================
+-- SECTION A: SQLite-compatible workaround
+-- Get the most recent order per customer
+-- using a subquery + ROW_NUMBER
+-- ============================================
+
+-- Step 1: see all orders with ROW_NUMBER applied
+SELECT
+    o.customer_id,
+    c.name,
+    o.product,
+    o.amount,
+    o.created_at,
+    ROW_NUMBER() OVER (
+        PARTITION BY o.customer_id
+        ORDER BY o.created_at DESC
+    ) AS rn
+FROM orders o
+JOIN customers c ON o.customer_id = c.id;
+
+-- Step 2: wrap in subquery and filter rn = 1
+SELECT
+    customer_id,
+    name,
+    product,
+    amount,
+    created_at
+FROM (
+    SELECT
+        o.customer_id,
+        c.name,
+        o.product,
+        o.amount,
+        o.created_at,
+        ROW_NUMBER() OVER (
+            PARTITION BY o.customer_id
+            ORDER BY o.created_at DESC
+        ) AS rn
+    FROM orders o
+    JOIN customers c ON o.customer_id = c.id
+)
+WHERE rn = 1
+ORDER BY customer_id;
+
+-- ============================================
+-- Bonus: Top 2 most recent orders per customer
+-- Just change rn = 1 to rn <= 2
+-- ============================================
+
+SELECT
+    customer_id,
+    name,
+    product,
+    amount,
+    created_at
+FROM (
+    SELECT
+        o.customer_id,
+        c.name,
+        o.product,
+        o.amount,
+        o.created_at,
+        ROW_NUMBER() OVER (
+            PARTITION BY o.customer_id
+            ORDER BY o.created_at DESC
+        ) AS rn
+    FROM orders o
+    JOIN customers c ON o.customer_id = c.id
+)
+WHERE rn <= 2
+ORDER BY customer_id, created_at DESC;
+
+-- ============================================
+-- SECTION B: QUALIFY syntax
+-- Run this on Snowflake, BigQuery, or DuckDB
+-- Same result as Section A — no subquery needed
+-- ============================================
+
+-- Most recent order per customer
+-- SELECT
+--     o.customer_id,
+--     c.name,
+--     o.product,
+--     o.amount,
+--     o.created_at
+-- FROM orders o
+-- JOIN customers c ON o.customer_id = c.id
+-- QUALIFY ROW_NUMBER() OVER (
+--     PARTITION BY o.customer_id
+--     ORDER BY o.created_at DESC
+-- ) = 1
+-- ORDER BY o.customer_id;
+
+-- Top 2 most recent orders per customer
+-- SELECT
+--     o.customer_id,
+--     c.name,
+--     o.product,
+--     o.amount,
+--     o.created_at
+-- FROM orders o
+-- JOIN customers c ON o.customer_id = c.id
+-- QUALIFY ROW_NUMBER() OVER (
+--     PARTITION BY o.customer_id
+--     ORDER BY o.created_at DESC
+-- ) <= 2
+-- ORDER BY o.customer_id, o.created_at DESC;
