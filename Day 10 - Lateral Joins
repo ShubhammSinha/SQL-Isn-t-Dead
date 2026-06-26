@@ -1,0 +1,172 @@
+-- ============================================
+-- Schema: dim_customers & fact_orders
+-- Used in: SQL Isn't Dead — Post 12
+-- Lateral Joins
+-- Database: SQLite (with PostgreSQL/Snowflake versions)
+-- ============================================
+
+-- NOTE: LATERAL JOIN is supported in PostgreSQL, Snowflake, BigQuery.
+-- SQLite does not support LATERAL natively.
+-- This file includes:
+--   Section A: SQLite-compatible correlated subquery workaround
+--   Section B: LATERAL syntax for PostgreSQL / Snowflake
+
+-- ============================================
+-- Schema
+-- ============================================
+
+CREATE TABLE dim_customers (
+    customer_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT    NOT NULL,
+    country       TEXT    NOT NULL,
+    signup_date   TEXT    NOT NULL
+);
+
+CREATE TABLE fact_orders (
+    order_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id   INTEGER NOT NULL REFERENCES dim_customers(customer_id),
+    product       TEXT    NOT NULL,
+    amount        REAL    NOT NULL,
+    created_at    TEXT    NOT NULL
+);
+
+-- ============================================
+-- Insert Data: dim_customers
+-- ============================================
+
+INSERT INTO dim_customers (customer_id, name, country, signup_date) VALUES
+    (1, 'Anna Müller',    'DE', '2025-11-02'),
+    (2, 'James Carter',   'US', '2025-12-14'),
+    (3, 'Lena Fischer',   'DE', '2026-01-08'),
+    (4, 'Carlos Mendes',  'PT', '2026-01-19'),
+    (5, 'Sophie Lambert', 'FR', '2026-02-03'),
+    (6, 'Tom Becker',     'DE', '2026-02-20');
+
+-- ============================================
+-- Insert Data: fact_orders
+-- Multiple orders per customer so lateral
+-- examples produce meaningful results
+-- ============================================
+
+INSERT INTO fact_orders (customer_id, product, amount, created_at) VALUES
+    (1, 'iPhone Case',      29.99, '2026-05-01 10:00:00'),
+    (1, 'USB-C Hub',        49.99, '2026-05-03 11:00:00'),
+    (1, 'Laptop Stand',     59.99, '2026-05-15 16:00:00'),
+    (2, 'Webcam',           89.99, '2026-05-05 12:00:00'),
+    (2, 'iPhone Case',      29.99, '2026-05-16 09:00:00'),
+    (2, 'Wireless Mouse',   39.99, '2026-05-20 15:00:00'),
+    (3, 'Screen Protector', 14.99, '2026-05-07 09:30:00'),
+    (3, 'USB-C Hub',        49.99, '2026-05-12 11:45:00'),
+    (3, 'Keyboard',         79.99, '2026-05-19 14:00:00'),
+    (4, 'Wireless Mouse',   39.99, '2026-05-08 14:00:00'),
+    (4, 'Webcam',           89.99, '2026-05-17 10:00:00'),
+    (5, 'Keyboard',         79.99, '2026-05-10 15:00:00'),
+    (5, 'USB-C Hub',        49.99, '2026-05-18 11:00:00'),
+    (6, 'Laptop Stand',     59.99, '2026-05-11 10:30:00'),
+    (6, 'iPhone Case',      29.99, '2026-05-14 13:00:00');
+
+-- ============================================
+-- View raw tables
+-- ============================================
+
+SELECT * FROM dim_customers;
+SELECT * FROM fact_orders;
+
+-- ============================================
+-- SECTION A: SQLite correlated subquery
+-- ============================================
+
+-- Use case 1: Most expensive order per customer
+SELECT
+    c.name,
+    (
+        SELECT product
+        FROM fact_orders f
+        WHERE f.customer_id = c.customer_id
+        ORDER BY amount DESC
+        LIMIT 1
+    ) AS top_product,
+    (
+        SELECT amount
+        FROM fact_orders f
+        WHERE f.customer_id = c.customer_id
+        ORDER BY amount DESC
+        LIMIT 1
+    ) AS top_amount
+FROM dim_customers c
+ORDER BY top_amount DESC;
+
+-- Use case 2: Most recent order per customer
+SELECT
+    c.name,
+    (
+        SELECT product
+        FROM fact_orders f
+        WHERE f.customer_id = c.customer_id
+        ORDER BY created_at DESC
+        LIMIT 1
+    ) AS latest_product,
+    (
+        SELECT created_at
+        FROM fact_orders f
+        WHERE f.customer_id = c.customer_id
+        ORDER BY created_at DESC
+        LIMIT 1
+    ) AS latest_order_date
+FROM dim_customers c
+ORDER BY latest_order_date DESC;
+
+-- Use case 3: Total orders and revenue per customer
+-- alongside their single most expensive order
+SELECT
+    c.name,
+    COUNT(f.order_id)   AS total_orders,
+    SUM(f.amount)       AS total_revenue,
+    (
+        SELECT product
+        FROM fact_orders sub
+        WHERE sub.customer_id = c.customer_id
+        ORDER BY amount DESC
+        LIMIT 1
+    ) AS most_expensive_product
+FROM dim_customers c
+LEFT JOIN fact_orders f ON c.customer_id = f.customer_id
+GROUP BY c.customer_id, c.name
+ORDER BY total_revenue DESC;
+
+-- ============================================
+-- SECTION B: LATERAL syntax
+-- Run this on PostgreSQL or Snowflake
+-- Uncomment to use
+-- ============================================
+
+-- Use case 1: Most expensive order per customer
+-- SELECT
+--     c.name,
+--     top_order.product,
+--     top_order.amount
+-- FROM dim_customers c
+-- CROSS JOIN LATERAL (
+--     SELECT product, amount
+--     FROM fact_orders f
+--     WHERE f.customer_id = c.customer_id
+--     ORDER BY amount DESC
+--     LIMIT 1
+-- ) AS top_order
+-- ORDER BY top_order.amount DESC;
+
+-- Use case 2: Top 2 orders per customer
+-- SELECT
+--     c.name,
+--     top_orders.product,
+--     top_orders.amount,
+--     top_orders.created_at
+-- FROM dim_customers c
+-- CROSS JOIN LATERAL (
+--     SELECT product, amount, created_at
+--     FROM fact_orders f
+--     WHERE f.customer_id = c.customer_id
+--     ORDER BY amount DESC
+--     LIMIT 2
+-- ) AS top_orders
+-- ORDER BY c.name, top_orders.amount DESC;
