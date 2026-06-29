@@ -1,0 +1,101 @@
+-- ============================================
+-- Schema: daily_orders
+-- Used in: SQL Isn't Dead — Post 13
+-- Window Frames: ROWS vs RANGE
+-- Database: SQLite
+-- ============================================
+
+CREATE TABLE daily_orders (
+    order_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_date  TEXT    NOT NULL,
+    product     TEXT    NOT NULL,
+    amount      REAL    NOT NULL,
+    created_at  TEXT    NOT NULL
+);
+
+-- ============================================
+-- Insert Data
+-- NOTE: rows 3 and 4 share the same order_date
+-- This is intentional — it's what makes ROWS
+-- and RANGE produce different results
+-- ============================================
+
+INSERT INTO daily_orders (order_id, order_date, product, amount, created_at) VALUES
+    (1, '2026-05-01', 'iPhone Case',      100.00, '2026-05-01 10:00:00'),
+    (2, '2026-05-02', 'USB-C Hub',        200.00, '2026-05-02 11:00:00'),
+    (3, '2026-05-03', 'Screen Protector', 150.00, '2026-05-03 09:00:00'),  -- tied date
+    (4, '2026-05-03', 'Wireless Mouse',   150.00, '2026-05-03 14:00:00'),  -- tied date
+    (5, '2026-05-04', 'Laptop Stand',     300.00, '2026-05-04 10:00:00');
+
+-- ============================================
+-- View raw table
+-- ============================================
+
+SELECT * FROM daily_orders;
+
+-- ============================================
+-- ROWS vs RANGE: running total comparison
+-- Watch rows 3 and 4 — they diverge
+-- ============================================
+
+SELECT
+    order_id,
+    order_date,
+    product,
+    amount,
+    SUM(amount) OVER (
+        ORDER BY order_date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS rows_running_total,
+    SUM(amount) OVER (
+        ORDER BY order_date
+        RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS range_running_total
+FROM daily_orders
+ORDER BY order_date, order_id;
+
+-- Expected output:
+-- row 1: ROWS = 100,  RANGE = 100   (same)
+-- row 2: ROWS = 300,  RANGE = 300   (same)
+-- row 3: ROWS = 450,  RANGE = 600   (different! RANGE includes row 4 as a peer)
+-- row 4: ROWS = 600,  RANGE = 600   (different! RANGE already included row 4)
+-- row 5: ROWS = 900,  RANGE = 900   (same again)
+
+-- ============================================
+-- Sliding window: 3-row moving average
+-- ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+-- ============================================
+
+SELECT
+    order_id,
+    order_date,
+    amount,
+    ROUND(
+        AVG(amount) OVER (
+            ORDER BY order_date, order_id
+            ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        ), 2
+    ) AS moving_avg_3rows
+FROM daily_orders
+ORDER BY order_date, order_id;
+
+-- ============================================
+-- Bonus: UNBOUNDED PRECEDING vs CURRENT ROW
+-- vs UNBOUNDED FOLLOWING — the full spectrum
+-- ============================================
+
+SELECT
+    order_id,
+    order_date,
+    amount,
+    SUM(amount) OVER (
+        ORDER BY order_date, order_id
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS running_total,
+    SUM(amount) OVER (
+        ORDER BY order_date, order_id
+        ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+    ) AS reverse_running_total,
+    SUM(amount) OVER () AS grand_total
+FROM daily_orders
+ORDER BY order_date, order_id;
