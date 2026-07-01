@@ -1,0 +1,173 @@
+-- ============================================
+-- Schema: customers, orders, product_summary
+-- Used in: SQL Isn't Dead — Post 14
+-- CASE WHEN patterns
+-- Database: SQLite
+-- ============================================
+
+CREATE TABLE customers (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    country     TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL
+);
+
+CREATE TABLE orders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    product     TEXT    NOT NULL,
+    category    TEXT    NOT NULL,
+    amount      REAL    NOT NULL,
+    created_at  TEXT    NOT NULL
+);
+
+-- product_summary is a pre-aggregated table
+-- used to demonstrate division-by-zero handling
+CREATE TABLE product_summary (
+    product        TEXT    NOT NULL,
+    total_revenue  REAL    NOT NULL,
+    total_orders   INTEGER NOT NULL
+);
+
+-- ============================================
+-- Insert Data: customers
+-- ============================================
+
+INSERT INTO customers (id, name, country, created_at) VALUES
+    (1, 'Anna Müller',    'DE', '2026-01-10 09:00:00'),
+    (2, 'James Carter',   'US', '2026-01-12 10:30:00'),
+    (3, 'Lena Fischer',   'DE', '2026-01-15 11:00:00'),
+    (4, 'Carlos Mendes',  'PT', '2026-01-18 14:00:00'),
+    (5, 'Sophie Lambert', 'FR', '2026-01-20 16:00:00'),
+    (6, 'Tom Becker',     'DE', '2026-01-22 08:45:00');
+
+-- ============================================
+-- Insert Data: orders
+-- ============================================
+
+INSERT INTO orders (id, customer_id, product, category, amount, created_at) VALUES
+    (1,  1, 'iPhone Case',      'Electronics', 29.99, '2026-05-01 10:00:00'),
+    (2,  1, 'USB-C Hub',        'Electronics', 49.99, '2026-05-03 11:00:00'),
+    (3,  2, 'Webcam',           'Electronics', 89.99, '2026-05-05 12:00:00'),
+    (4,  3, 'Screen Protector', 'Electronics', 14.99, '2026-05-07 09:30:00'),
+    (5,  4, 'Wireless Mouse',   'Electronics', 39.99, '2026-05-08 14:00:00'),
+    (6,  5, 'Keyboard',         'Electronics', 79.99, '2026-05-10 15:00:00'),
+    (7,  6, 'Laptop Stand',     'Office',      59.99, '2026-05-11 10:30:00'),
+    (8,  3, 'USB-C Hub',        'Electronics', 49.99, '2026-05-12 11:45:00'),
+    (9,  6, 'iPhone Case',      'Electronics', 29.99, '2026-05-14 13:00:00'),
+    (10, 1, 'Laptop Stand',     'Office',      59.99, '2026-05-15 16:00:00'),
+    (11, 2, 'iPhone Case',      'Electronics', 29.99, '2026-05-16 09:00:00'),
+    (12, 4, 'Webcam',           'Electronics', 89.99, '2026-05-17 10:00:00'),
+    (13, 5, 'USB-C Hub',        'Electronics', 49.99, '2026-05-18 11:00:00'),
+    (14, 3, 'Keyboard',         'Electronics', 79.99, '2026-05-19 14:00:00'),
+    (15, 2, 'Wireless Mouse',   'Electronics', 39.99, '2026-05-20 15:00:00');
+
+-- ============================================
+-- Insert Data: product_summary
+-- Note: 'Standing Desk' has 0 orders —
+-- this is the row that triggers division by zero
+-- ============================================
+
+INSERT INTO product_summary (product, total_revenue, total_orders) VALUES
+    ('iPhone Case',      89.97,  3),
+    ('USB-C Hub',       149.97,  3),
+    ('Webcam',          179.98,  2),
+    ('Keyboard',        159.98,  2),
+    ('Wireless Mouse',   79.98,  2),
+    ('Laptop Stand',    119.98,  2),
+    ('Screen Protector', 14.99,  1),
+    ('Standing Desk',     0.00,  0);  -- zero orders: division by zero risk
+
+-- ============================================
+-- View raw tables
+-- ============================================
+
+SELECT * FROM customers;
+SELECT * FROM orders;
+SELECT * FROM product_summary;
+
+-- ============================================
+-- PATTERN 1: Bucketing continuous values
+-- Turn raw amounts into human-readable labels
+-- ============================================
+
+SELECT
+    id          AS order_id,
+    product,
+    amount,
+    CASE
+        WHEN amount < 25              THEN 'Small'
+        WHEN amount BETWEEN 25 AND 75 THEN 'Medium'
+        ELSE                               'Large'
+    END AS order_size
+FROM orders
+ORDER BY amount;
+
+-- ============================================
+-- PATTERN 2: Conditional aggregation
+-- One query, one scan — multiple breakdowns
+-- ============================================
+
+SELECT
+    COUNT(*)                                              AS total_orders,
+    SUM(CASE WHEN c.country = 'DE' THEN o.amount ELSE 0 END) AS revenue_de,
+    SUM(CASE WHEN c.country = 'US' THEN o.amount ELSE 0 END) AS revenue_us,
+    SUM(CASE WHEN c.country = 'FR' THEN o.amount ELSE 0 END) AS revenue_fr,
+    SUM(CASE WHEN c.country = 'PT' THEN o.amount ELSE 0 END) AS revenue_pt
+FROM orders o
+JOIN customers c ON o.customer_id = c.id;
+
+-- Breakdown by category as well
+SELECT
+    c.country,
+    COUNT(*)                                                        AS total_orders,
+    SUM(CASE WHEN o.category = 'Electronics' THEN o.amount ELSE 0 END) AS electronics_revenue,
+    SUM(CASE WHEN o.category = 'Office'      THEN o.amount ELSE 0 END) AS office_revenue
+FROM orders o
+JOIN customers c ON o.customer_id = c.id
+GROUP BY c.country
+ORDER BY total_orders DESC;
+
+-- ============================================
+-- PATTERN 3: Handling edge cases
+-- Division by zero — try it broken, then fixed
+-- ============================================
+
+-- Broken: crashes or returns NULL unexpectedly on Standing Desk
+SELECT
+    product,
+    total_revenue,
+    total_orders,
+    ROUND(total_revenue / total_orders, 2) AS avg_order_value_broken
+FROM product_summary;
+
+-- Fixed: handle zero orders with CASE WHEN
+SELECT
+    product,
+    total_revenue,
+    total_orders,
+    CASE
+        WHEN total_orders = 0 THEN NULL
+        ELSE ROUND(total_revenue / total_orders, 2)
+    END AS avg_order_value
+FROM product_summary
+ORDER BY total_revenue DESC;
+
+-- ============================================
+-- PATTERN 4: Dynamic sorting with CASE WHEN
+-- Force category order, then sort by amount
+-- ============================================
+
+SELECT
+    id AS order_id,
+    product,
+    category,
+    amount
+FROM orders
+ORDER BY
+    CASE category
+        WHEN 'Electronics' THEN 1
+        WHEN 'Office'      THEN 2
+        ELSE                    3
+    END,
+    amount DESC;
